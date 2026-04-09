@@ -6,12 +6,13 @@ from pathlib import Path
 import subprocess
 import shutil
 import uuid
+from tkcalendar import Calendar
 
 class TaskScheduler:
     def __init__(self, root):
         self.root = root
         self.root.title("Task Scheduler")
-        self.root.geometry("650x460")
+        self.root.geometry("1000x700")
         self.tasks = []
         self.current_index = None
         self.load_tasks()
@@ -19,42 +20,119 @@ class TaskScheduler:
         self.schedule_notifications()
     
     def setup_ui(self):
+        # Main container frame
+        main_frame = ttk.Frame(self.root)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Left frame for input
+        left_frame = ttk.Frame(main_frame)
+        left_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        
         # Input frame
-        input_frame = ttk.Frame(self.root)
-        input_frame.pack(pady=10, padx=10, fill="x")
+        input_frame = ttk.LabelFrame(left_frame, text="Add/Edit Task")
+        input_frame.pack(fill="x", pady=(0, 10))
         
-        ttk.Label(input_frame, text="Task:").grid(row=0, column=0, padx=5)
+        ttk.Label(input_frame, text="Task:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.task_entry = ttk.Entry(input_frame, width=30)
-        self.task_entry.grid(row=0, column=1, padx=5)
+        self.task_entry.grid(row=0, column=1, padx=5, pady=5)
         
-        ttk.Label(input_frame, text="Date (YYYY-MM-DD):").grid(row=1, column=0, padx=5)
+        ttk.Label(input_frame, text="Date (MM/DD/YYYY):").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.date_entry = ttk.Entry(input_frame, width=30)
-        self.date_entry.grid(row=1, column=1, padx=5)
+        self.date_entry.grid(row=1, column=1, padx=5, pady=5)
+        self.date_entry.bind("<KeyRelease>", self.on_date_entry_change)
 
-        ttk.Label(input_frame, text="Time (HH:MM, optional):").grid(row=2, column=0, padx=5)
+        ttk.Label(input_frame, text="Time (HH:MM, optional):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.time_entry = ttk.Entry(input_frame, width=30)
-        self.time_entry.grid(row=2, column=1, padx=5)
+        self.time_entry.grid(row=2, column=1, padx=5, pady=5)
 
-        ttk.Label(input_frame, text="Description:").grid(row=3, column=0, padx=5)
+        ttk.Label(input_frame, text="Description:").grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.description_entry = ttk.Entry(input_frame, width=30)
-        self.description_entry.grid(row=3, column=1, padx=5)
+        self.description_entry.grid(row=3, column=1, padx=5, pady=5)
 
-        ttk.Label(input_frame, text="Notify before:").grid(row=4, column=0, padx=5)
+        ttk.Label(input_frame, text="Notify before:").grid(row=4, column=0, padx=5, pady=5, sticky="w")
         self.notify_choices = ["None", "1 day", "12 hours", "6 hours", "1 hour"]
         self.notify_combo = ttk.Combobox(input_frame, values=self.notify_choices, state="readonly", width=28)
         self.notify_combo.set("None")
-        self.notify_combo.grid(row=4, column=1, padx=5)
+        self.notify_combo.grid(row=4, column=1, padx=5, pady=5)
 
-        ttk.Button(input_frame, text="Add Task", command=self.add_task).grid(row=0, column=2, padx=5)
-        ttk.Button(input_frame, text="Delete", command=self.delete_task).grid(row=1, column=2, padx=5)
-        ttk.Button(input_frame, text="Edit Task", command=self.edit_task).grid(row=2, column=2, padx=5)
-        ttk.Button(input_frame, text="Update Task", command=self.update_task).grid(row=3, column=2, padx=5)
+        # Button frame
+        button_frame = ttk.Frame(input_frame)
+        button_frame.grid(row=5, column=0, columnspan=2, pady=10, sticky="ew")
+        
+        ttk.Button(button_frame, text="Add Task", command=self.add_task).pack(side="left", padx=2)
+        ttk.Button(button_frame, text="Edit Task", command=self.edit_task).pack(side="left", padx=2)
+        ttk.Button(button_frame, text="Update Task", command=self.update_task).pack(side="left", padx=2)
+        ttk.Button(button_frame, text="Delete", command=self.delete_task).pack(side="left", padx=2)
         
         # Tasks listbox
-        self.task_listbox = tk.Listbox(self.root, height=15)
-        self.task_listbox.pack(pady=10, padx=10, fill="both", expand=True)
+        list_frame = ttk.LabelFrame(left_frame, text="Tasks")
+        list_frame.pack(fill="both", expand=True)
+        
+        self.task_listbox = tk.Listbox(list_frame, height=15)
+        self.task_listbox.pack(pady=5, padx=5, fill="both", expand=True)
         self.task_listbox.bind("<Double-Button-1>", self.on_item_double_click)
         self.refresh_list()
+        
+        # Right frame for calendar
+        calendar_frame = ttk.LabelFrame(main_frame, text="Date Picker")
+        calendar_frame.pack(side="right", fill="both", padx=(10, 0))
+        
+        # Create calendar
+        self.calendar = Calendar(calendar_frame, selectmode='day', 
+                                year=datetime.now().year, 
+                                month=datetime.now().month,
+                                day=datetime.now().day)
+        self.calendar.pack(padx=10, pady=10)
+        self.calendar.bind("<<CalendarSelected>>", self.on_calendar_select)
+    
+    def on_calendar_select(self, event=None):
+        """Handle calendar date selection"""
+        try:
+            selected_date = self.calendar.get_date()
+            # get_date() returns a string, but might be in YY format
+            # Convert it to proper YYYY format
+            if isinstance(selected_date, str):
+                # Try parsing as MM/DD/YY first, then reformat to MM/DD/YYYY
+                try:
+                    date_obj = datetime.strptime(selected_date, "%m/%d/%y")
+                    formatted_date = date_obj.strftime("%m/%d/%Y")
+                except ValueError:
+                    # If that fails, it might already be MM/DD/YYYY
+                    formatted_date = selected_date
+            else:
+                # If it's a date object, format it
+                formatted_date = selected_date.strftime("%m/%d/%Y")
+            
+            self.date_entry.delete(0, tk.END)
+            self.date_entry.insert(0, formatted_date)
+            self.time_entry.focus()
+        except Exception as e:
+            pass
+
+    def on_date_entry_change(self, event=None):
+        """Handle manual date entry and sync calendar"""
+        try:
+            date_str = self.date_entry.get().strip()
+            if date_str:  # Only process if there's text
+                # Try to parse the date (accepts M/D/YYYY or MM/DD/YYYY)
+                date_obj = datetime.strptime(date_str, "%m/%d/%Y")
+                # Update calendar to show the correct month/year, then select the date
+                self.calendar.month = date_obj.month
+                self.calendar.year = date_obj.year
+                self.calendar.selection_set(date_obj.date())
+        except (ValueError, AttributeError, TypeError):
+            pass
+    
+    def parse_and_normalize_date(self, date_str):
+        """Parse date in flexible format (M/D/YYYY or MM/DD/YYYY) and return normalized MM/DD/YYYY string"""
+        try:
+            # Try to parse with flexible format
+            date_obj = datetime.strptime(date_str, "%m/%d/%Y")
+            # Normalize to MM/DD/YYYY format
+            return date_obj.strftime("%m/%d/%Y")
+        except ValueError:
+            # If that fails, return None
+            return None
     
     def add_task(self):
         task = self.task_entry.get().strip()
@@ -75,19 +153,25 @@ class TaskScheduler:
             messagebox.showwarning("Invalid Input", "Description cannot be empty.")
             return
 
+        # Parse and normalize date
+        normalized_date = self.parse_and_normalize_date(date)
+        if not normalized_date:
+            messagebox.showwarning("Invalid Date/Time", "Please enter date in M/D/YYYY or MM/DD/YYYY format.")
+            return
+
         try:
             if time_str:
-                datetime.strptime(f"{date} {time_str}", "%Y-%m-%d %H:%M")
+                datetime.strptime(f"{normalized_date} {time_str}", "%m/%d/%Y %H:%M")
             else:
-                datetime.strptime(date, "%Y-%m-%d")
+                datetime.strptime(normalized_date, "%m/%d/%Y")
         except ValueError:
-            messagebox.showwarning("Invalid Date/Time", "Please enter date in YYYY-MM-DD format and time in HH:MM format.")
+            messagebox.showwarning("Invalid Date/Time", "Please enter time in HH:MM format (e.g., 14:30).")
             return
 
         task_data = {
             "id": str(uuid.uuid4()),
             "task": task,
-            "date": date,
+            "date": normalized_date,
             "time": time_str,
             "description": description,
             "notify_before": notify_before,
@@ -159,20 +243,26 @@ class TaskScheduler:
             messagebox.showwarning("Invalid Input", "Description cannot be empty.")
             return
 
+        # Parse and normalize date
+        normalized_date = self.parse_and_normalize_date(date)
+        if not normalized_date:
+            messagebox.showwarning("Invalid Date/Time", "Please enter date in M/D/YYYY or MM/DD/YYYY format.")
+            return
+
         try:
             if time_str:
-                datetime.strptime(f"{date} {time_str}", "%Y-%m-%d %H:%M")
+                datetime.strptime(f"{normalized_date} {time_str}", "%m/%d/%Y %H:%M")
             else:
-                datetime.strptime(date, "%Y-%m-%d")
+                datetime.strptime(normalized_date, "%m/%d/%Y")
         except ValueError:
-            messagebox.showwarning("Invalid Date/Time", "Please enter date in YYYY-MM-DD format and time in HH:MM format.")
+            messagebox.showwarning("Invalid Date/Time", "Please enter time in HH:MM format (e.g., 14:30).")
             return
 
         existing_id = self.tasks[self.current_index].get("id", str(uuid.uuid4()))
         self.tasks[self.current_index] = {
             "id": existing_id,
             "task": task,
-            "date": date,
+            "date": normalized_date,
             "time": time_str,
             "description": description,
             "notify_before": notify_before,
@@ -203,8 +293,8 @@ class TaskScheduler:
         time_str = task.get("time", "")
         try:
             if time_str:
-                return datetime.strptime(f"{date} {time_str}", "%Y-%m-%d %H:%M")
-            return datetime.strptime(date, "%Y-%m-%d")
+                return datetime.strptime(f"{date} {time_str}", "%m/%d/%Y %H:%M")
+            return datetime.strptime(date, "%m/%d/%Y")
         except ValueError:
             return None
 
@@ -243,7 +333,7 @@ class TaskScheduler:
 
             notify_at = event_time - time_delta
             if notify_at <= now < event_time:
-                self.send_notification("Task Reminder", f"{task.get('task', '')} starts at {event_time.strftime('%Y-%m-%d %H:%M')}")
+                self.send_notification("Task Reminder", f"{task.get('task', '')} starts at {event_time.strftime('%m/%d/%Y %H:%M')}")
                 task["notified"] = True
 
         self.root.after(60000, self.schedule_notifications)
@@ -268,6 +358,14 @@ class TaskScheduler:
                     task["notify_before"] = "None"
                 if "notified" not in task:
                     task["notified"] = False
+                # Migrate old YYYY-MM-DD format to MM/DD/YYYY format
+                if "date" in task and task["date"]:
+                    try:
+                        if len(task["date"]) == 10 and task["date"][4] == '-':  # Old YYYY-MM-DD format
+                            old_date = datetime.strptime(task["date"], "%Y-%m-%d")
+                            task["date"] = old_date.strftime("%m/%d/%Y")
+                    except (ValueError, IndexError):
+                        pass
         except FileNotFoundError:
             self.tasks = []
 
